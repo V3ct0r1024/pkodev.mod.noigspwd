@@ -1,15 +1,16 @@
 #include <Windows.h>
 
-#include "loader.h"
+#if defined MOD_SIDE_CLIENT
+#include <detours.h>
+#include <algorithm>
+#include <string>
+#endif
 
+#include "loader.h"
 #include "address.h"
 #include "pointer.h"
 #include "hook.h"
 #include "structure.h"
-
-// Disable integer overflow warning
-#pragma warning(disable:26454)
-
 
 
 // Patch Game.exe
@@ -90,42 +91,51 @@ void Stop()
 
 void do_game_patch()
 {
-    // Access type
-    DWORD access = PAGE_EXECUTE_READWRITE;
-
-    // Change the access protection of the proccess
-    VirtualProtect(reinterpret_cast<LPVOID>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch),
-        sizeof(backup), access, &access);
-
-    // Backup old bytes
-    backup = *reinterpret_cast<unsigned int*>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch);
-
-    // Write patch bytes
-    *reinterpret_cast<unsigned int*>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch) =
-        ( pkodev::address::MOD_EXE_VERSION::CDoublePwdMgr__SendPackageStoreOpen
-            - pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch - 4
-    );
-
-    // Rollback the access protection of the proccess
-    VirtualProtect(reinterpret_cast<LPVOID>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch),
-        sizeof(backup), access, &access);
+    // Enable hooks
+    DetourRestoreAfterWith();
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)pkodev::pointer::CMiniMapMgr___MiniFormMouseEvent, pkodev::hook::CMiniMapMgr___MiniFormMouseEvent);
+    DetourTransactionCommit();
 }
 
 void undo_game_patch()
 {
-    // Access type
-    DWORD access = PAGE_EXECUTE_READWRITE;
+    // Disable hooks
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourDetach(&(PVOID&)pkodev::pointer::CMiniMapMgr___MiniFormMouseEvent, pkodev::hook::CMiniMapMgr___MiniFormMouseEvent);
+    DetourTransactionCommit();
+}
 
-    // Change the access protection of the proccess
-    VirtualProtect(reinterpret_cast<LPVOID>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch),
-        sizeof(unsigned int), access, &access);
+// void CMiniMapMgr::_MiniFormMouseEvent(CCompent *pSender, int nMsgType, int x, int y, DWORD dwKey)
+void __cdecl pkodev::hook::CMiniMapMgr___MiniFormMouseEvent(void* pSender, int nMsgType, int x, int y, DWORD dwKey)
+{
+    // Get pointer to the social button name
+    const char* szName = reinterpret_cast<const char*>(reinterpret_cast<int>(pSender) + 0x14);
 
-    // Write old bytes
-    *reinterpret_cast<unsigned int*>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch) = backup;
+    // Check the pointer
+    if (szName != nullptr)
+    {
+        // Convert const char * to std::string type
+        std::string button{ szName };
 
-    // Rollback the access protection of the proccess
-    VirtualProtect(reinterpret_cast<LPVOID>(pkodev::address::MOD_EXE_VERSION::CMiniMapMgr___MiniFormMouseEvent__Patch),
-        sizeof(unsigned int), access, &access);
+        // Convert the button name to the lower case
+        std::transform(button.begin(), button.end(), button.begin(), std::tolower);
+
+        // Check that the button name is "btnOpenStore"
+        if (button == "btnopenstore")
+        {
+            // Go to In-Game Mall (IGS)
+            pkodev::pointer::CS_StoreOpenAsk("");
+
+            // Exit form the hook
+            return;
+        }
+    }
+
+    // Call the original function CMiniMapMgr___MiniFormMouseEvent()
+    pkodev::pointer::CMiniMapMgr___MiniFormMouseEvent(pSender, nMsgType, x, y, dwKey);
 }
 
 #endif
